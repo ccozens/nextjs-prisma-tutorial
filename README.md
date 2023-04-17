@@ -129,20 +129,22 @@ export const getStaticProps: GetStaticProps = async () => {
 import prisma from '../../lib/prisma';
 // ...
 // find specific post by id
-export const getServerSideProps: GetServerSideProps = async ({ params }) => {
-  const post = await prisma.post.findUnique({
-    where: {
-      id: String(params?.id),
-    },
-    include: {
-      author: {
-        select: { name: true },
-      },
-    },
-  });
-  return {
-    props: post,
-  };
+export const getServerSideProps: GetServerSideProps = async ({
+	params,
+}) => {
+	const post = await prisma.post.findUnique({
+		where: {
+			id: String(params?.id),
+		},
+		include: {
+			author: {
+				select: { name: true },
+			},
+		},
+	});
+	return {
+		props: post,
+	};
 };
 ```
 
@@ -150,12 +152,12 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
 
 ### Github auth with NextAuth
 
-17. Update NextJS and react before installing NextAuth.  The tutorial says run `npm install next-auth@4 @next-auth/prisma-adapter` -> fails as needs NextJS v12.2.5 || 13, and template installs next@12.0.10.  
-NextJS says run `npm i next@latest react@latest react-dom@latest eslint-config-next@latest` to update. This fails as next@13 doesn't like react < 18.2.0. So:
-first: `npm i react@latest`
-second: `npm i next@latest react@latest react-dom@latest eslint-config-next@latest`
-third: `npm install next-auth@4 @next-auth/prisma-adapter`
-finally check it still works `npm run dev` ....no! 
+17. Update NextJS and react before installing NextAuth. The tutorial says run `npm install next-auth@4 @next-auth/prisma-adapter` -> fails as needs NextJS v12.2.5 || 13, and template installs next@12.0.10.  
+    NextJS says run `npm i next@latest react@latest react-dom@latest eslint-config-next@latest` to update. This fails as next@13 doesn't like react < 18.2.0. So:
+    first: `npm i react@latest`
+    second: `npm i next@latest react@latest react-dom@latest eslint-config-next@latest`
+    third: `npm install next-auth@4 @next-auth/prisma-adapter`
+    finally check it still works `npm run dev` ....no!
 
 ```
 Server Error
@@ -167,7 +169,7 @@ This error happened while generating the page. Any console logs will be displaye
 
 Sad times. Follow the link and it suggests `npx @next/codemod new-link . --force` to update <a> to <Link> (note `--force` is because I have un-commited changes). Now it works
 
-18. Update `schema.prisma`
+18. Update `schema.prisma` - see [NextAuth.js docs](https://next-auth.js.org/schemas/models) for details
 
 ```typescript
 // schema.prisma
@@ -227,5 +229,192 @@ model VerificationToken {
 }
 ```
 
-19. rerun `npx prisma db push`
-20. 
+19. rerun `npx prisma db push` - had to delete data in table first
+20. Create a new [OAuth app on GitHub](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps). Login to GitHub, then Settings -> Developer Settings -> OAuth Apps. Note the Authorization callback URL is `http://localhost:3000/api/auth`, meaning a new app will need to be registered when deploying app, with a different URL.
+21. Update `.env` with `GITHUB_ID` = Client ID, `GITHUB_SECRET` = hit `Generate a new client secret` and copy paste from the new GitHub OAuth page, and add `NEXTAUTH_URL=http://localhost:3000/api/auth`
+22. Update `_app.tsx` so that a user's authentication state persists across the entire application:
+    first add `import { SessionProvider } from 'next-auth/react';` to the imports
+    then wrap the Component in <SessionProvider>:
+
+```typescript
+// _app.tsx
+
+import { SessionProvider } from 'next-auth/react';
+import { AppProps } from 'next/app';
+
+const App = ({ Component, pageProps }: AppProps) => {
+	return (
+		<SessionProvider session={pageProps.session}>
+			<Component {...pageProps} />
+		</SessionProvider>
+	);
+};
+
+export default App;
+```
+
+### Add login functionality
+
+23. Update Header.tsx as shown and login button now shows. However, login button does not work as NextAuth.js requires you to set up a specific route for authentication.
+24. Create `pages/api/auth/[...nextauth.js]` ( `mkdir -p pages/api/auth && touch pages/api/auth/[...nextauth].ts`).
+25. Add [boilerplate to configure NextAuth.js setup](https://next-auth.js.org/configuration/pages) with GitHub OAuth credentials and Prisma adaptor:
+
+```typescript
+// pages/api/auth/[...nextauth].ts
+
+import { NextApiHandler } from 'next';
+import NextAuth from 'next-auth';
+import { PrismaAdapter } from '@next-auth/prisma-adapter';
+import GitHubProvider from 'next-auth/providers/github';
+import prisma from '../../../lib/prisma';
+
+const authHandler: NextApiHandler = (req, res) =>
+	NextAuth(req, res, options);
+export default authHandler;
+
+const options = {
+	providers: [
+		GitHubProvider({
+			clientId: process.env.GITHUB_ID,
+			clientSecret: process.env.GITHUB_SECRET,
+		}),
+	],
+	adapter: PrismaAdapter(prisma),
+	secret: process.env.SECRET,
+};
+```
+
+26. Login now works! Clicking login at home page forwards to github, and returns a logged in screen with username and email address displayed, and buttons for New post and Logout.
+
+### Add new post functionality
+
+27. The `new post` button automatically forwards to `/create` but this doesn't exist yet. So, create it: `touch pages/create.tsx` and add provided code. Compose page now loads up but doesn't work as neither `api/post` nor `/drafts` route exist.
+28. [Next.js API routes feature](https://nextjs.org/docs/api-routes/introduction) means any file within `/pages/api` is treated as an API endpoint instead of a page. So, create: `mkdir -p pages/api/post && touch pages/api/post/index.ts` and enter provided code to update the API route to modify the database using the Prisma Client.
+    --> at this point, tutorial says it should add new post to prisma and fail to load drafts page. My post functionality fails.
+
+### Add drafts functionality
+
+29. Drafts page cannot be statically rendered because it depends on a user who is authenticated. Pages like this that get their data dynamically based on an authenticated users are a great use case for server-side rendering (SSR) via getServerSideProps. Create a page: `touch pages/drafts.tsx` and add provided code.
+    --> works and shows drafts added manually on prisma client. Again, cannot create as create.tsx throws error.
+
+### Add publish functionality
+
+30. This functionality will be implemented in the post detail view that currently lives in `pages/p/[id].tsx`, by sending a HTTP PUT request to `api/publish`. First, create the route: `mkdir -p pages/api/publish && touch pages/api/publish/[id].ts`
+31. Second, add code:
+
+```typescript
+// pages/api/publish/[id].ts
+
+import prisma from '../../../lib/prisma';
+
+// PUT /api/publish/:id
+export default async function handle(req, res) {
+	const postId = req.query.id;
+	const post = await prisma.post.update({
+		where: { id: postId },
+		data: { published: true },
+	});
+	res.json(post);
+}
+```
+
+32. Implement in frontend (`pages/p/[id].tsx`). Update with provided code that adds a Publish button and implements PUT request as long as user authenticated.
+
+<details>
+    <summary>updated pages code</summary>
+
+```typescript
+// pages/p/[id].tsx
+
+import React from 'react';
+import { GetServerSideProps } from 'next';
+import ReactMarkdown from 'react-markdown';
+import Router from 'next/router';
+import Layout from '../../components/Layout';
+import { PostProps } from '../../components/Post';
+import { useSession } from 'next-auth/react';
+import prisma from '../../lib/prisma';
+
+export const getServerSideProps: GetServerSideProps = async ({
+	params,
+}) => {
+	const post = await prisma.post.findUnique({
+		where: {
+			id: String(params?.id),
+		},
+		include: {
+			author: {
+				select: { name: true, email: true },
+			},
+		},
+	});
+	return {
+		props: post,
+	};
+};
+
+async function publishPost(id: string): Promise<void> {
+	await fetch(`/api/publish/${id}`, {
+		method: 'PUT',
+	});
+	await Router.push('/');
+}
+
+const Post: React.FC<PostProps> = (props) => {
+	const { data: session, status } = useSession();
+	if (status === 'loading') {
+		return <div>Authenticating ...</div>;
+	}
+	const userHasValidSession = Boolean(session);
+	const postBelongsToUser =
+		session?.user?.email === props.author?.email;
+	let title = props.title;
+	if (!props.published) {
+		title = `${title} (Draft)`;
+	}
+
+	return (
+		<Layout>
+			<div>
+				<h2>{title}</h2>
+				<p>By {props?.author?.name || 'Unknown author'}</p>
+				<ReactMarkdown children={props.content} />
+				{!props.published &&
+					userHasValidSession &&
+					postBelongsToUser && (
+						<button onClick={() => publishPost(props.id)}>
+							Publish
+						</button>
+					)}
+			</div>
+			<style jsx>{`
+				.page {
+					background: var(--geist-background);
+					padding: 2rem;
+				}
+
+				.actions {
+					margin-top: 2rem;
+				}
+
+				button {
+					background: #ececec;
+					border: 0;
+					border-radius: 0.125rem;
+					padding: 1rem 2rem;
+				}
+
+				button + button {
+					margin-left: 1rem;
+				}
+			`}</style>
+		</Layout>
+	);
+};
+
+export default Post;
+```
+
+</details>
+
+--> this didn't work for me until I added [NEXTAUTH_SECRET](https://next-auth.js.org/configuration/options#secret) to `.env`. I generated as they suggest (`openssl rand -base64 32`).
