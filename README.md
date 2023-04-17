@@ -23,7 +23,7 @@ Note the prerequisitis list a PostgresQL database and link to setting up a [free
 5. Went to settings -> database -> Connection string -> URI and pasted into `DATABASE_URL` in `.env`, updating [YOUR_PASSWORD] section with password from (3)
 
 ## Actual project
-
+I use [OhMyZSH](ohmyz.sh) and after some time, I looked up why I couldn't create filenames with square brackets. As explained [here](https://www.bitsy.ai/zsh-no-matches-found/), its because ohmyzsh interprets [] as a pattern to match, so commands like `touch pages/api/post/[id].ts` need the square brackets escaping `touch pages/api/post/\[id].ts`.
 ### Setup
 
 1. Bootstrap project: `npx create-next-app --example https://github.com/prisma/blogr-nextjs-prisma/tree/main local_events`
@@ -580,3 +580,69 @@ export default Post;
 </details>
 
 --> this didn't work for me until I added [NEXTAUTH_SECRET](https://next-auth.js.org/configuration/options#secret) to `.env`. I generated as they suggest (`openssl rand -base64 32`).
+
+
+Note from tutorial:
+NoteOnce the app is deployed to production, the feed will be updated at most every 10 seconds when it receives a request. That's because you're using static site generation (SSG) via getStaticProps to retrieve the data for this view with [Incremental Static Regeneration](https://vercel.com/docs/basic-features/data-fetching/incremental-static-regeneration). If you want data to be updated "immediately", consider using [On-Demand Incremental Static Regeneration](https://vercel.com/docs/concepts/incremental-static-regeneration/quickstart).
+
+
+### Add delete functionality
+
+33.  Create new `[id].ts`  in post folder: `touch pages/api/post/[id].ts`.
+34.  Add following:
+
+```typescript
+// pages/api/post/[id].ts
+
+import prisma from '../../../lib/prisma';
+
+// DELETE /api/post/:id
+export default async function handle(req, res) {
+  const postId = req.query.id;
+  if (req.method === 'DELETE') {
+    const post = await prisma.post.delete({
+      where: { id: postId },
+    });
+    res.json(post);
+  } else {
+    throw new Error(
+      `The HTTP ${req.method} method is not supported at this route.`,
+    );
+  }
+}
+```
+
+
+1.   Add the following to `pages/p/[id].tsx` below `publishPost`:
+
+```typescript
+// pages/p/[id].tsx
+
+async function deletePost(id: string): Promise<void> {
+  await fetch(`/api/post/${id}`, {
+    method: 'DELETE',
+  });
+  Router.push('/');
+}
+```
+
+
+36.  Add delete button to `pages/p/[id].tsx` below the Publish button:
+
+```typescript
+// pages/p/[id].tsx
+{
+  !props.published && userHasValidSession && postBelongsToUser && (
+    <button onClick={() => publishPost(props.id)}>Publish</button>
+  );
+}
+{
+  userHasValidSession && postBelongsToUser && (
+    <button onClick={() => deletePost(props.id)}>Delete</button>
+  );
+}
+```
+
+
+### Deploy to Vercel
+37. 
