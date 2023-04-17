@@ -1,4 +1,3 @@
-import { getSession } from 'next-auth/react';
 import prisma from '../../../lib/prisma';
 
 // POST /api/post
@@ -6,13 +5,20 @@ import prisma from '../../../lib/prisma';
 // Optional fields in body: content
 export default async function handler(req, res) {
 	console.log('Endpoint hit');
+
 	const { title, content } = req.body;
-	const session = await getSession({ req });
+
+	// find the userId in the database so can provide authorId to post
+	const authorId = await prisma.user.findUnique({
+		where: { email: req.body.userEmail },
+		select: { id: true },
+	});
+
 	const result = await prisma.post.create({
 		data: {
 			title: title,
 			content: content,
-			author: { connect: { email: session?.user?.email } },
+			authorId: authorId.id, // pass only id property, not whole object
 		},
 	});
 	res.json(result);

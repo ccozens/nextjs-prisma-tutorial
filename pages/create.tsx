@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Layout from '../components/Layout';
 import Router from 'next/router';
+import { getSession } from 'next-auth/react';
 import Link from 'next/link';
 
 const Draft: React.FC = () => {
@@ -11,8 +12,10 @@ const Draft: React.FC = () => {
 		e.preventDefault();
 		// Call your API route to create a post.
 		try {
-			const body = { title, content };
-			console.log('submittage');
+			const session = await getSession();
+			const userEmail = session.user.email;
+
+			const body = { title, content, userEmail };
 			await fetch('/api/post', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
