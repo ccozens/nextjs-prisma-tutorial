@@ -4,12 +4,12 @@
 
 ## Tech stack
 
-Next.js as the React framework
-Next.js API routes for server-side API routes as the backend
-Prisma as the ORM for migrations and database access
-PostgreSQL as the database
-NextAuth.js for authentication via GitHub (OAuth)
-TypeScript as the programming language
+Next.js as the React framework  
+Next.js API routes for server-side API routes as the backend  
+Prisma as the ORM for migrations and database access  
+PostgreSQL as the database  
+NextAuth.js for authentication via GitHub (OAuth)  
+TypeScript as the programming language  
 Vercel for deployment
 
 ## Process
@@ -173,7 +173,7 @@ Learn more: https://nextjs.org/docs/messages/invalid-new-link-with-extra-anchor
 This error happened while generating the page. Any console logs will be displayed in the terminal window.
 ```
 
-Sad times. Follow the link and it suggests `npx @next/codemod new-link . --force` to update <a> to <Link> (note `--force` is because I have un-commited changes). Now it works
+Sad times. Follow the link and it suggests `npx @next/codemod new-link . --force` to update \<a> to \<Link> (note `--force` is because I have un-commited changes). Now it works - it amended `Header.tsx`.
 
 18. Update `schema.prisma` - see [NextAuth.js docs](https://next-auth.js.org/schemas/models) for details
 
@@ -295,7 +295,134 @@ const options = {
 ### Add new post functionality
 
 27. The `new post` button automatically forwards to `/create` but this doesn't exist yet. So, create it: `touch pages/create.tsx` and add provided code. Compose page now loads up but doesn't work as neither `api/post` nor `/drafts` route exist.
+<details>
+	<summary>code for `create.tsx`</summary>
+
+```typescript
+// pages/create.tsx
+
+import React, { useState } from 'react';
+import Layout from '../components/Layout';
+import Router from 'next/router';
+
+const Draft: React.FC = () => {
+	const [title, setTitle] = useState('');
+	const [content, setContent] = useState('');
+
+	const submitData = async (e: React.SyntheticEvent) => {
+		e.preventDefault();
+		try {
+			const body = { title, content };
+			await fetch('/api/post', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			await Router.push('/drafts');
+		} catch (error) {
+			console.error(error);
+		}
+	};
+
+	return (
+		<Layout>
+			<div>
+				<form onSubmit={submitData}>
+					<h1>New Draft</h1>
+					<input
+						autoFocus
+						onChange={(e) => setTitle(e.target.value)}
+						placeholder="Title"
+						type="text"
+						value={title}
+					/>
+					<textarea
+						cols={50}
+						onChange={(e) => setContent(e.target.value)}
+						placeholder="Content"
+						rows={8}
+						value={content}
+					/>
+					<input
+						disabled={!content || !title}
+						type="submit"
+						value="Create"
+					/>
+					<a
+						className="back"
+						href="#"
+						onClick={() => Router.push('/')}>
+						or Cancel
+					</a>
+				</form>
+			</div>
+			<style jsx>{`
+				.page {
+					background: var(--geist-background);
+					padding: 3rem;
+					display: flex;
+					justify-content: center;
+					align-items: center;
+				}
+
+				input[type='text'],
+				textarea {
+					width: 100%;
+					padding: 0.5rem;
+					margin: 0.5rem 0;
+					border-radius: 0.25rem;
+					border: 0.125rem solid rgba(0, 0, 0, 0.2);
+				}
+
+				input[type='submit'] {
+					background: #ececec;
+					border: 0;
+					padding: 1rem 2rem;
+				}
+
+				.back {
+					margin-left: 1rem;
+				}
+			`}</style>
+		</Layout>
+	);
+};
+
+export default Draft;
+```
+
+</details>
+
 28. [Next.js API routes feature](https://nextjs.org/docs/api-routes/introduction) means any file within `/pages/api` is treated as an API endpoint instead of a page. So, create: `mkdir -p pages/api/post && touch pages/api/post/index.ts` and enter provided code to update the API route to modify the database using the Prisma Client.
+<details>
+	<summary>code for `api/post/index.ts`</summary>
+
+```typescript
+// pages/api/post/index.ts
+
+import { getSession } from 'next-auth/react';
+import prisma from '../../../lib/prisma';
+
+// POST /api/post
+// Required fields in body: title
+// Optional fields in body: content
+export default async function handle(req, res) {
+	const { title, content } = req.body;
+
+	const session = await getSession({ req });
+	const result = await prisma.post.create({
+		data: {
+			title: title,
+			content: content,
+			author: { connect: { email: session?.user?.email } },
+		},
+	});
+	res.json(result);
+}
+```
+
+</details>
+
     --> at this point, tutorial says it should add new post to prisma and fail to load drafts page. My post functionality fails.
     **FIX**
     The problem was `index.ts` was returning null for the user email, and in any case post does not accept a user email but needs an authorId. So, I amended both `create.tsx` and `index.ts`
@@ -457,11 +584,101 @@ export default async function handler(req, res) {
 ```
 
 </details>
-
+  
+  
 ### Add drafts functionality
 
 29. Drafts page cannot be statically rendered because it depends on a user who is authenticated. Pages like this that get their data dynamically based on an authenticated users are a great use case for server-side rendering (SSR) via getServerSideProps. Create a page: `touch pages/drafts.tsx` and add provided code.
-    --> works and shows drafts added manually on prisma client. Again, cannot create as create.tsx throws error.
+--> works and shows drafts added manually on prisma client. Again, cannot create as create.tsx throws error.
+<details>
+	<summary>code for `drafts.tsx`</summary>
+
+```typescript
+// pages/drafts.tsx
+
+import React from 'react';
+import { GetServerSideProps } from 'next';
+import { useSession, getSession } from 'next-auth/react';
+import Layout from '../components/Layout';
+import Post, { PostProps } from '../components/Post';
+import prisma from '../lib/prisma';
+
+export const getServerSideProps: GetServerSideProps = async ({
+	req,
+	res,
+}) => {
+	const session = await getSession({ req });
+	if (!session) {
+		res.statusCode = 403;
+		return { props: { drafts: [] } };
+	}
+
+	const drafts = await prisma.post.findMany({
+		where: {
+			author: { email: session.user.email },
+			published: false,
+		},
+		include: {
+			author: {
+				select: { name: true },
+			},
+		},
+	});
+	return {
+		props: { drafts },
+	};
+};
+
+type Props = {
+	drafts: PostProps[];
+};
+
+const Drafts: React.FC<Props> = (props) => {
+	const { data: session } = useSession();
+
+	if (!session) {
+		return (
+			<Layout>
+				<h1>My Drafts</h1>
+				<div>You need to be authenticated to view this page.</div>
+			</Layout>
+		);
+	}
+
+	return (
+		<Layout>
+			<div className="page">
+				<h1>My Drafts</h1>
+				<main>
+					{props.drafts.map((post) => (
+						<div key={post.id} className="post">
+							<Post post={post} />
+						</div>
+					))}
+				</main>
+			</div>
+			<style jsx>{`
+				.post {
+					background: var(--geist-background);
+					transition: box-shadow 0.1s ease-in;
+				}
+
+				.post:hover {
+					box-shadow: 1px 1px 3px #aaa;
+				}
+
+				.post + .post {
+					margin-top: 2rem;
+				}
+			`}</style>
+		</Layout>
+	);
+};
+
+export default Drafts;
+```
+
+</details>
 
 ### Add publish functionality
 
@@ -646,35 +863,18 @@ async function deletePost(id: string): Promise<void> {
 ### Deploy to Vercel
 
 Deployment means updating both GitHub OAuth settings and NEXTAUTH_URL. 37. Head to [github](https://github.com/) -> [account] -> (https://github.com/settings/profile) -> [develper settings](https://github.com/settings/apps) -> [OAuth Apps](https://github.com/settings/developers). 38. Register a new OAuth app. Required fields: 1. Application name (I used `nextjs-prisma-tutorial-deploy`) 2. Homepage URL: http://prisma.io 3. Application description: NextJS x Prisma tutorial 4. Authorization callback URL: `https://chris-nextjs-prisma-tutorial.vercel.app/api/auth`
-Note here I will use `chris-nextjs-prisma-tutorial` as the vercel project name, so the syntax is `https://<vercel-project-name>.vercel.app/api/auth` 39. Update `.env`:
+Note here I will use `chris-nextjs-prisma-tutorial` as the vercel project name, so the syntax is `https://<vercel-project-name>.vercel.app/api/auth`
 
-```javascript
-# supabase credentials
-
-SUPABASE_PWD=no change
-DATABASE_URL= no change
-
-# github auth credentials
-
-GITHUB_ID=update to new OAuth app's client ID
-GITHUB_SECRET= generate a secret in new OAuth app and update here
-
-# login URL for nextauth
-
-NEXTAUTH_URL=same as github OAuth authorization callback URL
-NEXTAUTH_SECRET=remove
-```
-
-40. Head to [Vercel](https://vercel.com/import/git?env=DATABASE_URL,GITHUB_ID,GITHUB_SECRET,NEXTAUTH_URL) and import the git repo
-41. Configure project:
-    1.  Project Name: as discussed in last point: `chris-nextjs-prisma-tutorial`
-    2.  Framework preset: leave as `Next.js`
-    3.  Root Directory: leave as `./`
-    4.  Build and output settings: leave defaults
-    5.  Environmental variables:
-        1.  DATABASE_URL: Copy this value directly from your .env file
-        2.  GITHUB_ID: Set this to the Client ID of the GitHub OAuth app you just created
-        3.  GITHUB_SECRET: Set this to the Client Secret of the GitHub OAuth app you just created
-        4.  NEXTAUTH_URL: Set this to the Authorization Callback URL of the GitHub OAuth app you just created
-        5.  SECRET: Set this to your own strong secret. This was not needed in development as NextAuth.js will generate one if not provided. However, you will need to provide your own value for production otherwise you will receive an error.
-42. DEPLOY
+39. Head to [Vercel](https://vercel.com/import/git?env=DATABASE_URL,GITHUB_ID,GITHUB_SECRET,NEXTAUTH_URL) and import the git repo
+40. Configure project:
+41. Project Name: as discussed in last point: `chris-nextjs-prisma-tutorial`
+42. Framework preset: leave as `Next.js`
+43. Root Directory: leave as `./`
+44. Build and output settings: leave defaults
+45. Environmental variables:
+    - DATABASE_URL: Copy this value directly from your .env file
+    - GITHUB_ID: Set this to the Client ID of the GitHub OAuth app you just created
+    - GITHUB_SECRET: Set this to the Client Secret of the GitHub OAuth app you just created
+    - NEXTAUTH_URL: Set this to the Authorization Callback URL of the GitHub OAuth app you just created
+    - SECRET: Set this to your own strong secret. This was not needed in development as NextAuth.js will generate one if not provided. However, you will need to provide your own value for production otherwise you will receive an error.
+46. DEPLOY
